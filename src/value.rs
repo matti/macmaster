@@ -3,9 +3,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
-/// A preference value. Equality is type-aware: `Int(1)` is not `Bool(true)`
-/// and `Int(15)` is not `Float(15.0)`, so a value stored with the wrong type
-/// counts as a change.
+/// A preference value. `PartialEq` is strict and type-aware; use
+/// [`Value::satisfies`] to decide whether a stored value already matches.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Bool(bool),
@@ -26,6 +25,17 @@ impl Value {
             Value::Float(_) => "liukuluku",
             Value::Str(_) => "merkkijono",
             Value::Unsupported(name) => name,
+        }
+    }
+
+    /// True when this stored value already matches `desired`. Numbers compare by
+    /// value across int and float (System Settings on macOS 26 stores key repeat
+    /// as a float, and readers coerce either way). Other types must match exactly,
+    /// so `Int(0)` does not satisfy `Bool(false)`.
+    pub fn satisfies(&self, desired: &Value) -> bool {
+        match (self, desired) {
+            (Value::Int(i), Value::Float(x)) | (Value::Float(x), Value::Int(i)) => *i as f64 == *x,
+            _ => self == desired,
         }
     }
 
@@ -56,6 +66,14 @@ mod tests {
         assert_ne!(Value::Int(1), Value::Bool(true));
         assert_ne!(Value::Int(15), Value::Float(15.0));
         assert_eq!(Value::Int(2), Value::Int(2));
+    }
+
+    #[test]
+    fn numbers_satisfy_across_int_and_float() {
+        assert!(Value::Float(15.0).satisfies(&Value::Int(15)));
+        assert!(Value::Int(2).satisfies(&Value::Float(2.0)));
+        assert!(!Value::Float(2.5).satisfies(&Value::Int(2)));
+        assert!(!Value::Int(0).satisfies(&Value::Bool(false)));
     }
 
     #[test]

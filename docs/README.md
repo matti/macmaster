@@ -39,7 +39,7 @@ notes that apply:
 ## How it works
 
 - Settings are a static table in `src/settings.rs` (see `adding-a-setting.md`).
-- Each value is read with `CFPreferencesCopyAppValue` (current user, any host), compared type-aware,
+- Each value is read with `CFPreferencesCopyAppValue` (current user, any host), compared with `Value::satisfies` (numbers by value, other types strict),
   and written with `CFPreferencesSetAppValue` only if it differs. Each write is read back to
   catch silently rejected writes, then `CFPreferencesAppSynchronize` flushes each touched domain once.
 - No `defaults` subprocess, no `killall cfprefsd`. Writing through CFPreferences goes through

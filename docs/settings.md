@@ -43,7 +43,7 @@ Checked read-only on the build machine, not from memory:
   the toggle is flipped could not be confirmed without changing live settings; we set it explicitly.
 - Type finding: on the build machine `InitialKeyRepeat` and `KeyRepeat` are stored as float
   (`defaults read-type -g KeyRepeat` -> float), most likely written by the Tahoe System Settings.
-  macmaster writes int as requested; the reader (HIToolbox) accepts any CFNumber. Because comparison
-  is type-aware, a float value is reported as a change to int.
+  macmaster writes int; the reader (HIToolbox) accepts any CFNumber. Numbers compare by value across
+  int and float (`Value::satisfies`), so a stored 15.0 counts as unchanged.
 - Not included, but toggles that exist on Tahoe: "Show typing suggestions"
   (`NSAutomaticTextCompletionEnabled`) and "Show suggested replies". Add them with one line if wanted.

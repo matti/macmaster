@@ -5,7 +5,7 @@
 - Tests must never touch NSGlobalDomain or real settings; real backend test uses `dev.triac.macmaster.test` only.
 - Zero config: no config files, no prompts, settings live in `src/settings.rs` (`SETTINGS`, one line each).
 - Prefs via CFPreferences (`objc2-core-foundation`), never shell out to `defaults`.
-- Comparison is type-aware (`Int(1) != Bool(true)`, `Int(15) != Float(15.0)`).
+- Comparison via `Value::satisfies`: numbers by value across int/float, other types strict (`Int(0)` does not satisfy `Bool(false)`).
 - User-facing output in Finnish (correct ä/ö). No em/en dashes anywhere.
 - Gate: `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`.
 - Layout: `src/settings.rs` table, `src/apply.rs` diff/apply, `src/prefs/` backend trait + CF + fake, `src/report.rs` output.

@@ -77,7 +77,9 @@ pub fn apply<'a>(prefs: &mut impl Prefs, settings: &'a [Setting], mode: Mode) ->
         .map(|setting| {
             let (old, status) = match prefs.read(setting.domain, setting.key) {
                 Err(err) => (None, Status::Failed(err)),
-                Ok(old) if old.as_ref() == Some(&setting.value) => (old, Status::Unchanged),
+                Ok(old) if old.as_ref().is_some_and(|v| v.satisfies(&setting.value)) => {
+                    (old, Status::Unchanged)
+                }
                 Ok(old) if mode == Mode::DryRun => (old, Status::WouldChange),
                 Ok(old) => match prefs.write(setting.domain, setting.key, &setting.value) {
                     Ok(()) => {
@@ -206,15 +208,15 @@ mod tests {
     }
 
     #[test]
-    fn type_change_counts_as_change() {
+    fn bool_type_change_counts_but_int_float_does_not() {
         let mut p = all_set()
             .with(G, "Flag", Int(0))
             .with(G, "KeyRepeat", Float(2.0));
         let o = apply(&mut p, TABLE, Mode::Apply);
-        assert_eq!(o.entries[0].status, Status::Changed);
+        assert_eq!(o.entries[0].status, Status::Unchanged);
         assert_eq!(o.entries[1].status, Status::Changed);
         assert_eq!(p.get(G, "Flag"), Some(&Bool(false)));
-        assert_eq!(p.get(G, "KeyRepeat"), Some(&Int(2)));
+        assert_eq!(p.get(G, "KeyRepeat"), Some(&Float(2.0)));
     }
 
     #[test]
