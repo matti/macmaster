@@ -9,4 +9,5 @@
 - User-facing output in Finnish (correct ä/ö). No em/en dashes anywhere.
 - Gate: `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`.
 - Layout: `src/settings.rs` table, `src/apply.rs` diff/apply, `src/prefs/` backend trait + CF + fake, `src/report.rs` output.
+- Release: push tag `v*`; CI builds universal binary, `install.sh` fetches latest release. See `docs/distribution.md`.
 - Docs: `docs/README.md` (usage), `docs/settings.md` (what and why, Tahoe findings), `docs/adding-a-setting.md`, `docs/distribution.md`, `docs/alternatives.md`.

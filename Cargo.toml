@@ -3,6 +3,7 @@ name = "macmaster"
 version = "0.1.0"
 edition = "2024"
 description = "Zero-config: one command applies opinionated macOS settings"
+repository = "https://github.com/matti/macmaster"
 publish = false
 
 [lib]

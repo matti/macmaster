@@ -2,6 +2,14 @@
 
 One command that configures a Mac the way we like it. No config file, no questions.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/matti/macmaster/main/install.sh | sh
+```
+
+See `distribution.md` for what the installer does and how releases are built.
+
 ## Usage
 
 ```sh
