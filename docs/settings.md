@@ -7,8 +7,8 @@ repeat is additionally set live in the HID event system (see below).
 
 | Key | Value | What and why |
 |---|---|---|
-| `InitialKeyRepeat` | int 15 | Delay before a held key starts repeating, in 1/60 s ticks: 250 ms. The shortest the System Settings slider allows; we deliberately do not go below the GUI minimum. |
-| `KeyRepeat` | int 2 | Repeat interval, 2/60 s = 33 ms. Fastest GUI setting. |
+| `InitialKeyRepeat` | int 10 | Delay before a held key starts repeating, in 1/60 s ticks: 167 ms. Below the System Settings minimum (15 = 250 ms); the user found the GUI minimum too slow. |
+| `KeyRepeat` | int 1 | Repeat interval, 1/60 s = 17 ms. Below the fastest GUI setting (2 = 33 ms); the user found it too slow. |
 | `ApplePressAndHoldEnabled` | bool false | A held key repeats instead of opening the accent popup. Accents remain available through dead keys / the Finnish layout. |
 
 Press-and-hold is read by each app at launch.
