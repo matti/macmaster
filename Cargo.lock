@@ -118,10 +118,11 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "macmaster"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "objc2-core-foundation",
+ "objc2-io-kit",
 ]
 
 [[package]]
@@ -131,6 +132,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "objc2-core-foundation",
 ]
 
 [[package]]

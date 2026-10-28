@@ -7,6 +7,7 @@ pub mod memory;
 
 pub use cf::CfPrefs;
 
+use crate::error::Result;
 use crate::value::Value;
 use std::fmt;
 
@@ -27,19 +28,6 @@ impl fmt::Display for Domain {
         }
     }
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PrefsError(pub String);
-
-impl fmt::Display for PrefsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for PrefsError {}
-
-pub type Result<T> = std::result::Result<T, PrefsError>;
 
 /// Minimal preferences backend.
 pub trait Prefs {

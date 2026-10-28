@@ -20,7 +20,9 @@ Fields:
 - `value`: `Bool`, `Int`, `Float` or `Str(Cow::Borrowed("..."))`. Use the type macOS itself reads;
   check with `defaults read-type <domain> <key>` on a Mac where the setting was changed in System Settings.
 - `effect`: what makes it take effect.
-  - `Logout`: read at login (key repeat). Summary tells the user to log out.
+  - `LiveHid("HIDKeyRepeat")`: key repeat style value in 1/60 s ticks that the running session
+    reads from the HID event system. macmaster also diffs and sets that live property (in ns), so
+    no logout is needed; the summary asks for a logout only if the live set fails.
   - `RelaunchApps`: read by each app at launch. Summary says running apps need a relaunch.
   - `Restart("Dock")`: macmaster runs `killall Dock` after a change (launchd restarts it).
 - `description_fi`: short Finnish description shown on every output line.

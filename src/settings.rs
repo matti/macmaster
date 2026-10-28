@@ -6,8 +6,9 @@ use crate::value::Value;
 /// What has to happen before a changed setting takes effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    /// Read at login (WindowServer / HID): log out and back in.
-    Logout,
+    /// Key repeat (1/60 s ticks): macmaster also sets this HID event system property, in ns,
+    /// so the running session uses it at once. The plist value is what each login restores.
+    LiveHid(&'static str),
     /// Read by each app at launch: relaunch running apps.
     RelaunchApps,
     /// macmaster restarts this process (`killall <name>`) after a change, e.g. "Dock".
@@ -38,14 +39,14 @@ const fn global(
     }
 }
 
-use Effect::{Logout, RelaunchApps};
+use Effect::{LiveHid, RelaunchApps};
 use Value::{Bool, Int};
 
 #[rustfmt::skip]
 pub const SETTINGS: &[Setting] = &[
     // Keyboard: the fastest repeat System Settings allows, not below it.
-    global("InitialKeyRepeat", Int(15), Logout, "Viive ennen toistoa: lyhin System Settingsin sallima (15 = 225 ms)"),
-    global("KeyRepeat", Int(2), Logout, "Näppäimen toistonopeus: nopein System Settingsin sallima (2 = 30 ms)"),
+    global("InitialKeyRepeat", Int(15), LiveHid("HIDInitialKeyRepeat"), "Viive ennen toistoa: lyhin System Settingsin sallima (15 = 250 ms)"),
+    global("KeyRepeat", Int(2), LiveHid("HIDKeyRepeat"), "Näppäimen toistonopeus: nopein System Settingsin sallima (2 = 33 ms)"),
     global("ApplePressAndHoldEnabled", Bool(false), RelaunchApps, "Pohjassa pidetty näppäin toistaa merkkiä, ei avaa aksenttivalikkoa"),
     // Text input: no automatic corrections or substitutions.
     global("NSAutomaticSpellingCorrectionEnabled", Bool(false), RelaunchApps, "Oikeinkirjoituksen automaattinen korjaus pois"),
@@ -71,6 +72,15 @@ mod tests {
                 "duplicate setting {}",
                 s.key
             );
+        }
+    }
+
+    #[test]
+    fn live_hid_values_are_numeric() {
+        for s in SETTINGS {
+            if let Effect::LiveHid(key) = s.effect {
+                assert!(crate::hid::ticks_to_ns(&s.value).is_some(), "{key}");
+            }
         }
     }
 

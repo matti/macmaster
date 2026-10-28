@@ -1,6 +1,9 @@
-//! Diff the settings table against the backend and (unless dry-run) write the difference.
+//! Diff the settings table against the backends and (unless dry-run) write the difference.
+//! Each setting is one stored preference; a `LiveHid` setting is also a live HID property.
 
-use crate::prefs::{Domain, Prefs, PrefsError};
+use crate::error::{Error, Result};
+use crate::hid::{Hid, ticks_to_ns};
+use crate::prefs::{Domain, Prefs};
 use crate::settings::{Effect, Setting};
 use crate::value::Value;
 
@@ -16,13 +19,24 @@ pub enum Status {
     /// Dry-run: differs, nothing written.
     WouldChange,
     Changed,
-    Failed(PrefsError),
+    Failed(Error),
+}
+
+/// Where a value lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// Stored preference: persists, read at login or app launch.
+    Pref(Domain, &'static str),
+    /// Live HID event system property: what the running session uses now.
+    Hid(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry<'a> {
     pub setting: &'a Setting,
-    /// Value before macmaster ran; `None` if the key was not set.
+    pub target: Target,
+    pub desired: Value,
+    /// Value before macmaster ran; `None` if not set.
     pub old: Option<Value>,
     pub status: Status,
 }
@@ -49,11 +63,18 @@ impl Outcome<'_> {
         self.count(|s| matches!(s, Status::Failed(_))) > 0
     }
 
-    /// True if any setting with this effect differs.
-    pub fn needs(&self, effect: Effect) -> bool {
+    /// True if a setting read at app launch differs: running apps need a relaunch.
+    pub fn needs_relaunch(&self) -> bool {
         self.entries
             .iter()
-            .any(|e| e.differs() && e.setting.effect == effect)
+            .any(|e| e.differs() && e.setting.effect == Effect::RelaunchApps)
+    }
+
+    /// True if a live HID property could not be read or set: only a new login applies it.
+    pub fn needs_logout(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|e| matches!(e.target, Target::Hid(_)) && matches!(e.status, Status::Failed(_)))
     }
 
     /// Processes to restart, deduplicated, in table order.
@@ -70,41 +91,91 @@ impl Outcome<'_> {
     }
 }
 
-pub fn apply<'a>(prefs: &mut impl Prefs, settings: &'a [Setting], mode: Mode) -> Outcome<'a> {
-    let mut dirty: Vec<Domain> = Vec::new();
-    let mut entries: Vec<Entry<'a>> = settings
-        .iter()
-        .map(|setting| {
-            let (old, status) = match prefs.read(setting.domain, setting.key) {
-                Err(err) => (None, Status::Failed(err)),
-                Ok(old) if old.as_ref().is_some_and(|v| v.satisfies(&setting.value)) => {
-                    (old, Status::Unchanged)
-                }
-                Ok(old) if mode == Mode::DryRun => (old, Status::WouldChange),
-                Ok(old) => match prefs.write(setting.domain, setting.key, &setting.value) {
-                    Ok(()) => {
-                        if !dirty.contains(&setting.domain) {
-                            dirty.push(setting.domain);
-                        }
-                        (old, Status::Changed)
-                    }
-                    Err(err) => (old, Status::Failed(err)),
-                },
-            };
-            Entry {
-                setting,
-                old,
-                status,
-            }
-        })
-        .collect();
+/// Compares `read` with `desired` and, when applying, writes the difference.
+fn reconcile(
+    read: Result<Option<Value>>,
+    desired: &Value,
+    mode: Mode,
+    write: impl FnOnce() -> Result<()>,
+) -> (Option<Value>, Status) {
+    match read {
+        Err(err) => (None, Status::Failed(err)),
+        Ok(old) if old.as_ref().is_some_and(|v| v.satisfies(desired)) => (old, Status::Unchanged),
+        Ok(old) if mode == Mode::DryRun => (old, Status::WouldChange),
+        Ok(old) => match write() {
+            Ok(()) => (old, Status::Changed),
+            Err(err) => (old, Status::Failed(err)),
+        },
+    }
+}
 
-    for domain in dirty {
+fn pref_entry<'a>(prefs: &mut impl Prefs, setting: &'a Setting, mode: Mode) -> Entry<'a> {
+    let (domain, key, desired) = (setting.domain, setting.key, &setting.value);
+    let (old, status) = reconcile(prefs.read(domain, key), desired, mode, || {
+        prefs.write(domain, key, desired)
+    });
+    Entry {
+        setting,
+        target: Target::Pref(domain, key),
+        desired: desired.clone(),
+        old,
+        status,
+    }
+}
+
+fn hid_entry<'a>(
+    hid: &mut impl Hid,
+    setting: &'a Setting,
+    key: &'static str,
+    mode: Mode,
+) -> Entry<'a> {
+    let (desired, (old, status)) = match ticks_to_ns(&setting.value) {
+        Some(ns) => {
+            let result = reconcile(hid.read(key), &ns, mode, || hid.write(key, &ns));
+            (ns, result)
+        }
+        None => {
+            let err = Error(format!("{} ei ole luku", setting.key));
+            (setting.value.clone(), (None, Status::Failed(err)))
+        }
+    };
+    Entry {
+        setting,
+        target: Target::Hid(key),
+        desired,
+        old,
+        status,
+    }
+}
+
+pub fn apply<'a>(
+    prefs: &mut impl Prefs,
+    hid: &mut impl Hid,
+    settings: &'a [Setting],
+    mode: Mode,
+) -> Outcome<'a> {
+    let mut entries = Vec::new();
+    for setting in settings {
+        entries.push(pref_entry(prefs, setting, mode));
+        if let Effect::LiveHid(key) = setting.effect {
+            entries.push(hid_entry(hid, setting, key, mode));
+        }
+    }
+
+    // Flush each written domain once; a failed flush fails every write in it.
+    let mut written: Vec<Domain> = Vec::new();
+    for e in &entries {
+        if let (Target::Pref(domain, _), Status::Changed) = (e.target, &e.status)
+            && !written.contains(&domain)
+        {
+            written.push(domain);
+        }
+    }
+    for domain in written {
         if let Err(err) = prefs.sync(domain) {
-            for e in entries
-                .iter_mut()
-                .filter(|e| e.setting.domain == domain && e.differs())
-            {
+            for e in entries.iter_mut().filter(|e| {
+                matches!(e.target, Target::Pref(d, _) if d == domain) && e.status == Status::Changed
+            }) {
                 e.status = Status::Failed(err.clone());
             }
         }
@@ -116,19 +187,22 @@ pub fn apply<'a>(prefs: &mut impl Prefs, settings: &'a [Setting], mode: Mode) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hid::memory::MemoryHid;
     use crate::prefs::memory::MemoryPrefs;
-    use crate::settings::Effect::{Logout, RelaunchApps, Restart};
+    use crate::settings::Effect::{LiveHid, RelaunchApps, Restart};
     use Value::{Bool, Float, Int};
 
     const G: Domain = Domain::Global;
     const DOCK: Domain = Domain::App("com.apple.dock");
+    const HID_KR: &str = "HIDKeyRepeat";
+    const NS_2: Value = Int(33_333_333);
 
     const TABLE: &[Setting] = &[
         Setting {
             domain: G,
             key: "KeyRepeat",
             value: Int(2),
-            effect: Logout,
+            effect: LiveHid(HID_KR),
             description_fi: "a",
         },
         Setting {
@@ -154,6 +228,11 @@ mod tests {
         },
     ];
 
+    // Entry indices: the live HID entry follows its preference entry.
+    const KR: usize = 0;
+    const KR_LIVE: usize = 1;
+    const FLAG: usize = 2;
+
     fn all_set() -> MemoryPrefs {
         MemoryPrefs::default()
             .with(G, "KeyRepeat", Int(2))
@@ -162,18 +241,23 @@ mod tests {
             .with(DOCK, "tilesize", Int(40))
     }
 
+    fn live_set() -> MemoryHid {
+        MemoryHid::default().with(HID_KR, NS_2)
+    }
+
     fn statuses(o: &Outcome) -> Vec<Status> {
         o.entries.iter().map(|e| e.status.clone()).collect()
     }
 
     #[test]
     fn unchanged_writes_and_syncs_nothing() {
-        let mut p = all_set();
-        let o = apply(&mut p, TABLE, Mode::Apply);
+        let (mut p, mut h) = (all_set(), live_set());
+        let o = apply(&mut p, &mut h, TABLE, Mode::Apply);
+        assert_eq!(o.entries.len(), 5);
         assert!(statuses(&o).iter().all(|s| *s == Status::Unchanged));
-        assert_eq!(p.writes, 0);
+        assert_eq!((p.writes, h.writes), (0, 0));
         assert!(p.syncs.is_empty());
-        assert!(!o.needs(Logout));
+        assert!(!o.needs_logout() && !o.needs_relaunch());
         assert!(o.processes_to_restart().is_empty());
     }
 
@@ -183,28 +267,47 @@ mod tests {
             .with(G, "KeyRepeat", Int(5))
             .with(DOCK, "autohide", Bool(false))
             .with(DOCK, "tilesize", Int(64));
-        let o = apply(&mut p, TABLE, Mode::Apply);
-        assert_eq!(o.entries[0].status, Status::Changed);
-        assert_eq!(o.entries[0].old, Some(Int(5)));
-        assert_eq!(o.entries[1].status, Status::Unchanged);
+        let mut h = MemoryHid::default().with(HID_KR, Int(83_333_333));
+        let o = apply(&mut p, &mut h, TABLE, Mode::Apply);
+        assert_eq!(o.entries[KR].status, Status::Changed);
+        assert_eq!(o.entries[KR].old, Some(Int(5)));
+        assert_eq!(o.entries[KR_LIVE].target, Target::Hid(HID_KR));
+        assert_eq!(o.entries[KR_LIVE].status, Status::Changed);
+        assert_eq!(o.entries[KR_LIVE].old, Some(Int(83_333_333)));
+        assert_eq!(o.entries[FLAG].status, Status::Unchanged);
         assert_eq!(p.get(G, "KeyRepeat"), Some(&Int(2)));
+        assert_eq!(h.get(HID_KR), Some(&NS_2));
         assert_eq!(p.writes, 3);
         assert_eq!(p.syncs, vec![G, DOCK]);
-        assert!(o.needs(Logout));
-        assert!(!o.needs(RelaunchApps));
+        assert!(!o.needs_logout());
+        assert!(!o.needs_relaunch());
         assert_eq!(o.processes_to_restart(), vec!["Dock"]);
     }
 
     #[test]
+    fn stale_live_value_is_set_even_when_plist_is_correct() {
+        let mut p = all_set();
+        let mut h = MemoryHid::default().with(HID_KR, Int(83_333_333));
+        let o = apply(&mut p, &mut h, TABLE, Mode::Apply);
+        assert_eq!(o.entries[KR].status, Status::Unchanged);
+        assert_eq!(o.entries[KR_LIVE].status, Status::Changed);
+        assert_eq!(h.get(HID_KR), Some(&NS_2));
+        assert_eq!((p.writes, h.writes), (0, 1));
+        assert!(p.syncs.is_empty());
+    }
+
+    #[test]
     fn missing_key_is_a_change() {
-        let mut p = MemoryPrefs::default();
-        let o = apply(&mut p, TABLE, Mode::Apply);
+        let (mut p, mut h) = (MemoryPrefs::default(), MemoryHid::default());
+        let o = apply(&mut p, &mut h, TABLE, Mode::Apply);
         assert!(
             o.entries
                 .iter()
                 .all(|e| e.old.is_none() && e.status == Status::Changed)
         );
         assert_eq!(p.get(DOCK, "tilesize"), Some(&Int(40)));
+        assert_eq!(h.get(HID_KR), Some(&NS_2));
+        assert!(o.needs_relaunch());
     }
 
     #[test]
@@ -212,9 +315,9 @@ mod tests {
         let mut p = all_set()
             .with(G, "Flag", Int(0))
             .with(G, "KeyRepeat", Float(2.0));
-        let o = apply(&mut p, TABLE, Mode::Apply);
-        assert_eq!(o.entries[0].status, Status::Unchanged);
-        assert_eq!(o.entries[1].status, Status::Changed);
+        let o = apply(&mut p, &mut live_set(), TABLE, Mode::Apply);
+        assert_eq!(o.entries[KR].status, Status::Unchanged);
+        assert_eq!(o.entries[FLAG].status, Status::Changed);
         assert_eq!(p.get(G, "Flag"), Some(&Bool(false)));
         assert_eq!(p.get(G, "KeyRepeat"), Some(&Float(2.0)));
     }
@@ -222,22 +325,38 @@ mod tests {
     #[test]
     fn dry_run_writes_nothing() {
         let mut p = all_set().with(G, "KeyRepeat", Int(5));
-        let before = p.values.clone();
-        let o = apply(&mut p, TABLE, Mode::DryRun);
-        assert_eq!(o.entries[0].status, Status::WouldChange);
+        let mut h = MemoryHid::default().with(HID_KR, Int(83_333_333));
+        let (before, live_before) = (p.values.clone(), h.values.clone());
+        let o = apply(&mut p, &mut h, TABLE, Mode::DryRun);
+        assert_eq!(o.entries[KR].status, Status::WouldChange);
+        assert_eq!(o.entries[KR_LIVE].status, Status::WouldChange);
         assert_eq!(p.values, before);
-        assert_eq!(p.writes, 0);
+        assert_eq!(h.values, live_before);
+        assert_eq!((p.writes, h.writes), (0, 0));
         assert!(p.syncs.is_empty());
-        assert!(o.needs(Logout));
+        assert!(!o.needs_logout());
     }
 
     #[test]
     fn write_failure_is_reported_and_others_continue() {
         let mut p = MemoryPrefs::default();
         p.failing_keys.insert("Flag".into());
-        let o = apply(&mut p, TABLE, Mode::Apply);
-        assert!(matches!(o.entries[1].status, Status::Failed(_)));
-        assert_eq!(o.entries[0].status, Status::Changed);
+        let o = apply(&mut p, &mut MemoryHid::default(), TABLE, Mode::Apply);
+        assert!(matches!(o.entries[FLAG].status, Status::Failed(_)));
+        assert_eq!(o.entries[KR].status, Status::Changed);
         assert!(o.has_failures());
+        assert!(!o.needs_logout());
+    }
+
+    #[test]
+    fn live_failure_keeps_plist_write_and_needs_logout() {
+        let mut p = MemoryPrefs::default();
+        let mut h = MemoryHid::default();
+        h.failing_keys.insert(HID_KR.into());
+        let o = apply(&mut p, &mut h, TABLE, Mode::Apply);
+        assert_eq!(o.entries[KR].status, Status::Changed);
+        assert!(matches!(o.entries[KR_LIVE].status, Status::Failed(_)));
+        assert_eq!(p.get(G, "KeyRepeat"), Some(&Int(2)));
+        assert!(o.needs_logout());
     }
 }

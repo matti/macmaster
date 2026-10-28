@@ -1,11 +1,13 @@
 //! Real backend: CFPreferences for the current user on any host
 //! (the same store `defaults` and System Settings use, via cfprefsd).
 
-use super::{Domain, Prefs, PrefsError, Result};
+use super::{Domain, Prefs};
+use crate::cfvalue::{to_value, with_cf};
+use crate::error::{Error, Result};
 use crate::value::Value;
 use objc2_core_foundation::{
-    CFBoolean, CFGetTypeID, CFNumber, CFPreferencesAppSynchronize, CFPreferencesCopyAppValue,
-    CFPreferencesSetAppValue, CFRetained, CFString, CFType, Type, kCFPreferencesAnyApplication,
+    CFPreferencesAppSynchronize, CFPreferencesCopyAppValue, CFPreferencesSetAppValue, CFRetained,
+    CFString, CFType, Type, kCFPreferencesAnyApplication,
 };
 
 #[derive(Debug, Default)]
@@ -16,22 +18,6 @@ fn app_id(domain: Domain) -> CFRetained<CFString> {
         // SAFETY: immutable CFString constant exported by CoreFoundation.
         Domain::Global => unsafe { kCFPreferencesAnyApplication }.retain(),
         Domain::App(id) => CFString::from_str(id),
-    }
-}
-
-fn to_value(v: &CFType) -> Value {
-    if let Some(b) = v.downcast_ref::<CFBoolean>() {
-        Value::Bool(b.as_bool())
-    } else if let Some(n) = v.downcast_ref::<CFNumber>() {
-        match (n.is_float_type(), n.as_i64(), n.as_f64()) {
-            (false, Some(i), _) => Value::Int(i),
-            (_, _, Some(x)) => Value::Float(x),
-            _ => Value::Unsupported("CFNumber".into()),
-        }
-    } else if let Some(s) = v.downcast_ref::<CFString>() {
-        Value::Str(s.to_string().into())
-    } else {
-        Value::Unsupported(format!("CFTypeID {}", CFGetTypeID(Some(v))))
     }
 }
 
@@ -55,19 +41,11 @@ impl Prefs for CfPrefs {
     }
 
     fn write(&mut self, domain: Domain, key: &str, value: &Value) -> Result<()> {
-        match value {
-            Value::Bool(b) => set(domain, key, Some(CFBoolean::new(*b))),
-            Value::Int(i) => set(domain, key, Some(&CFNumber::new_i64(*i))),
-            Value::Float(x) => set(domain, key, Some(&CFNumber::new_f64(*x))),
-            Value::Str(s) => set(domain, key, Some(&CFString::from_str(s))),
-            Value::Unsupported(t) => {
-                return Err(PrefsError(format!("ei voi kirjoittaa tyyppiä {t}")));
-            }
-        }
+        with_cf(value, |cf| set(domain, key, Some(cf)))?;
         // CFPreferencesSetAppValue has no error result; read back to detect a rejected write.
         match self.read(domain, key)? {
             Some(ref stored) if stored == value => Ok(()),
-            other => Err(PrefsError(format!(
+            other => Err(Error(format!(
                 "kirjoitus ei tallentunut: {domain} {key} = {}",
                 other.map_or_else(|| "ei asetettu".into(), |v| v.to_string())
             ))),
@@ -78,7 +56,7 @@ impl Prefs for CfPrefs {
         if CFPreferencesAppSynchronize(&app_id(domain)) {
             Ok(())
         } else {
-            Err(PrefsError(format!(
+            Err(Error(format!(
                 "CFPreferencesAppSynchronize epäonnistui: {domain}"
             )))
         }

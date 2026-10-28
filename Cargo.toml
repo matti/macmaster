@@ -1,6 +1,6 @@
 [package]
 name = "macmaster"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Zero-config: one command applies opinionated macOS settings"
 repository = "https://github.com/matti/macmaster"
@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFPreferences", "CFNumber", "CFString"] }
+objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std", "hidsystem"] }
 
 [profile.release]
 lto = true

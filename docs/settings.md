@@ -1,17 +1,33 @@
 # Settings
 
-All settings are in NSGlobalDomain (kCFPreferencesAnyApplication), current user, any host.
+All settings are in NSGlobalDomain (kCFPreferencesAnyApplication), current user, any host. Key
+repeat is additionally set live in the HID event system (see below).
 
 ## Keyboard
 
 | Key | Value | What and why |
 |---|---|---|
-| `InitialKeyRepeat` | int 15 | Delay before a held key starts repeating, in 15 ms ticks: 225 ms. The shortest the System Settings slider allows; we deliberately do not go below the GUI minimum. |
-| `KeyRepeat` | int 2 | Repeat interval, 30 ms. Fastest GUI setting. |
+| `InitialKeyRepeat` | int 15 | Delay before a held key starts repeating, in 1/60 s ticks: 250 ms. The shortest the System Settings slider allows; we deliberately do not go below the GUI minimum. |
+| `KeyRepeat` | int 2 | Repeat interval, 2/60 s = 33 ms. Fastest GUI setting. |
 | `ApplePressAndHoldEnabled` | bool false | A held key repeats instead of opening the accent popup. Accents remain available through dead keys / the Finnish layout. |
 
-Key repeat is read at login, so a change needs logout and login. Press-and-hold is read by each app
-at launch.
+Press-and-hold is read by each app at launch.
+
+### Key repeat applies live, no logout
+
+The plist values are only read at login (that is what persists). The running session uses the
+values held by the HID event system, in nanoseconds. macmaster treats those as their own diff
+targets, `HIDInitialKeyRepeat` and `HIDKeyRepeat`, shown as separate output lines:
+
+- Read and set through `IOHIDEventSystemClientCreateSimpleClient` +
+  `IOHIDEventSystemClientCopyProperty` / `IOHIDEventSystemClientSetProperty` (crate
+  `objc2-io-kit`, feature `hidsystem`). This is what `hidutil property` and System Settings do;
+  no sudo needed, effective immediately.
+- Value: ticks * 1e9 / 60, truncated: 2 -> 33333333, 15 -> 250000000 (matches what System Settings
+  sets). Each set is read back to catch silent rejection.
+- The live value is compared even when the plist is already correct, so a session still running
+  with old values is fixed without logout. Only if the live set fails does the summary say to log
+  out and back in.
 
 ## Text input (Keyboard > Text Input > Edit)
 
@@ -41,6 +57,9 @@ Checked read-only on the build machine, not from memory:
   persists them under the `NSAutomatic...` keys above. No additional key for "Correct spelling
   automatically" was found. Whether AppKit also writes `WebAutomaticSpellingCorrectionEnabled` when
   the toggle is flipped could not be confirmed without changing live settings; we set it explicitly.
+- Units: `hidutil property --get HIDKeyRepeat` gave 83333333 with `KeyRepeat` 5, and
+  `HIDInitialKeyRepeat` 250000000 with `InitialKeyRepeat` 15, so one tick is 1/60 s (not 15 ms).
+  `hidutil property --set` as a normal user changed the live repeat rate at once.
 - Type finding: on the build machine `InitialKeyRepeat` and `KeyRepeat` are stored as float
   (`defaults read-type -g KeyRepeat` -> float), most likely written by the Tahoe System Settings.
   macmaster writes int; the reader (HIToolbox) accepts any CFNumber. Numbers compare by value across

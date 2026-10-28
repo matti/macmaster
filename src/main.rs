@@ -1,5 +1,6 @@
 use clap::{ArgAction, Parser};
 use macmaster::apply::{Mode, apply};
+use macmaster::hid::HidSystem;
 use macmaster::prefs::CfPrefs;
 use macmaster::report;
 use macmaster::settings::SETTINGS;
@@ -49,7 +50,7 @@ fn main() -> ExitCode {
     } else {
         Mode::Apply
     };
-    let outcome = apply(&mut CfPrefs, SETTINGS, mode);
+    let outcome = apply(&mut CfPrefs, &mut HidSystem::new(), SETTINGS, mode);
 
     for entry in &outcome.entries {
         println!("{}", report::line(entry));

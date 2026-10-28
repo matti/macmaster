@@ -1,6 +1,7 @@
 //! In-memory fake backend for unit tests.
 
-use super::{Domain, Prefs, PrefsError, Result};
+use super::{Domain, Prefs};
+use crate::error::{Error, Result};
 use crate::value::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -31,7 +32,7 @@ impl Prefs for MemoryPrefs {
 
     fn write(&mut self, domain: Domain, key: &str, value: &Value) -> Result<()> {
         if self.failing_keys.contains(key) {
-            return Err(PrefsError(format!("simuloitu virhe: {key}")));
+            return Err(Error(format!("simuloitu virhe: {key}")));
         }
         self.writes += 1;
         self.values.insert((domain, key.to_owned()), value.clone());
