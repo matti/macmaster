@@ -40,13 +40,13 @@ const fn global(
 }
 
 use Effect::{LiveHid, RelaunchApps};
-use Value::{Bool, Int};
+use Value::{Bool, Float, Int};
 
 #[rustfmt::skip]
 pub const SETTINGS: &[Setting] = &[
     // Keyboard: the fastest repeat System Settings allows, not below it.
-    global("InitialKeyRepeat", Int(10), LiveHid("HIDInitialKeyRepeat"), "Viive ennen toistoa: System Settingsin minimiä lyhyempi (10 = 167 ms)"),
-    global("KeyRepeat", Int(1), LiveHid("HIDKeyRepeat"), "Näppäimen toistonopeus: System Settingsin minimiä nopeampi (1 = 17 ms)"),
+    global("InitialKeyRepeat", Int(12), LiveHid("HIDInitialKeyRepeat"), "Viive ennen toistoa: System Settingsin minimiä lyhyempi (12 = 200 ms)"),
+    global("KeyRepeat", Float(1.5), LiveHid("HIDKeyRepeat"), "Näppäimen toistonopeus: System Settingsin minimiä nopeampi (1.5 = 25 ms)"),
     global("ApplePressAndHoldEnabled", Bool(false), RelaunchApps, "Pohjassa pidetty näppäin toistaa merkkiä, ei avaa aksenttivalikkoa"),
     // Text input: no automatic corrections or substitutions.
     global("NSAutomaticSpellingCorrectionEnabled", Bool(false), RelaunchApps, "Oikeinkirjoituksen automaattinen korjaus pois"),
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn key_repeat_not_below_gui_minimum() {
         let get = |k| SETTINGS.iter().find(|s| s.key == k).map(|s| &s.value);
-        assert_eq!(get("InitialKeyRepeat"), Some(&Int(10)));
-        assert_eq!(get("KeyRepeat"), Some(&Int(1)));
+        assert_eq!(get("InitialKeyRepeat"), Some(&Int(12)));
+        assert_eq!(get("KeyRepeat"), Some(&Float(1.5)));
     }
 }

@@ -7,8 +7,8 @@ repeat is additionally set live in the HID event system (see below).
 
 | Key | Value | What and why |
 |---|---|---|
-| `InitialKeyRepeat` | int 10 | Delay before a held key starts repeating, in 1/60 s ticks: 167 ms. Below the System Settings minimum (15 = 250 ms); the user found the GUI minimum too slow. |
-| `KeyRepeat` | int 1 | Repeat interval, 1/60 s = 17 ms. Below the fastest GUI setting (2 = 33 ms); the user found it too slow. |
+| `InitialKeyRepeat` | int 12 | Delay before a held key starts repeating, in 1/60 s ticks: 200 ms. Below the System Settings minimum (15 = 250 ms): 15 felt too slow, 10 too fast. |
+| `KeyRepeat` | float 1.5 | Repeat interval, 1.5/60 s = 25 ms. Between the fastest GUI setting (2 = 33 ms, too slow) and 1 (17 ms, too fast). Float is fine: Tahoe System Settings itself stores this key as float. |
 | `ApplePressAndHoldEnabled` | bool false | A held key repeats instead of opening the accent popup. Accents remain available through dead keys / the Finnish layout. |
 
 Press-and-hold is read by each app at launch.
